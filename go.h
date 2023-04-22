@@ -1,6 +1,9 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <math.h>
+#include <string.h>
 
+#define TEST 16
 #define BEGGINER 9
 #define INTERMEDIATE 13
 #define EXPERT 19
@@ -23,4 +26,13 @@
 #define TEXT_FONT "\033[38;5;0;48;5;250m"
 #define CLEAR_FONT "\033[0m"
 
-void printBoard(int);
+typedef uint8_t** Board;
+typedef uint64_t* CompressedBoard;
+
+uint16_t getUserInput();
+void makeMove(int, Board, int);
+int isValidMove(int, int, Board, int);
+void createBoard(int);
+void destroyBoard(int);
+void printBoard(int, Board);
+CompressedBoard compressBoardState(Board, int);
