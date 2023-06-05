@@ -1,7 +1,7 @@
 # Go
 ### Go features (in progress)
 - Unicode pieces
-- Darw in unicode board
+- Draw in unicode board
 - Move validation
 - Ko Rule
 - Korean Scoring (TODO)
