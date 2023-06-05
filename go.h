@@ -31,15 +31,21 @@
 //Types of boards
 typedef uint8_t** Board;//normal board
 typedef uint64_t* CompressedBoard;//compressed board state
-typedef uint64_t** PastBoards;//history of board states
-
+typedef struct PastBoards{
+    //history of board states
+    CompressedBoard** states;
+    //size of each list of boards
+    int* sizes;
+}PastBoards;
 void getUserInput(int* row, int* column);
 void makeMove();
 int isValidMove(int row, int column);
 int capture(int row, int column, int player, uint8_t** visited, int* count);
+int checkKo(CompressedBoard currentState);
 void flipPieces(uint8_t player, uint8_t** spaces, int size);
 void clearFlags(uint8_t flag, uint8_t** spaces, int size);
 void createBoard();
 void destroyBoard();
 void printBoard();
 CompressedBoard compressBoardState();
+

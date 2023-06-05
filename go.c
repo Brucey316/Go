@@ -4,15 +4,28 @@ int running;
 Board board;
 int size;
 int turn;
+int total_pieces;
+struct PastBoards history;
 
 int main(int argc, char* argv[]){
-    size = TEST;
+    size = BEGGINER;
+    //create the board
     createBoard(size);
+    //initialize the history structure
+    //store a list of states by the amount of pieces on the board
+    history.states = (CompressedBoard**) malloc(sizeof(CompressedBoard*)*size*size);
+    //store a list of sizes for the lists that are stored
+    history.sizes = (int*) malloc(sizeof(int) * size * size);
+    //set all state sizes to 0
+    memset(history.sizes,0,size*size);
+    //basic game loop, iterate turns while game is running
     for(turn = 0; running == 0; turn++ ){
         printBoard();
         makeMove();
         compressBoardState();
     }
+    //clean up board
+    //TODO: clean up history
     destroyBoard(size);
     return 0;
 }
@@ -65,6 +78,7 @@ void makeMove(){
     }
     printf("Move made\n");
     board[row][column] = turn%2+1;
+    total_pieces++;
 }
 
 /*  Function: Is Valid Move?
@@ -78,30 +92,33 @@ void makeMove(){
 */
 int isValidMove(int row, int column){
     //check if index of row and column is within bounds
-    if(row < 0 || row >= size || column < 0 || column >= size){printf("Out of bounds\n"); return 0;}
+    if(row < 0 || row >= size || column < 0 || column >= size){printf("OUT OF BOUNDS\n"); return 0;}
     //make sure space is empty
-    if(board[row][column] != 0){printf("taken\n"); return 0;}
+    if(board[row][column] != 0){printf("TAKEN\n"); return 0;}
 
     //temporarily make move
     board[row][column] = turn%2+1;
+    total_pieces++;
     
     //----- Check can capture in all orthagonal directions-----
-
+    printf("checking for capture\n");
     //  if adjacent piece is an opponent check if it no liberties
     // if no liberties found, flip all captured pieces
     uint8_t** captured = malloc(1);
     int captured_size = 0;
     int prev_size = 0;
 
-    uint8_t opponent = (turn%2+1) ^ 3;
     uint8_t player = turn%2+1;
+    uint8_t opponent = player ^ 3;
 
     if(column-1 >= 0 && board[row][column-1] == opponent){
         //if not capturable, remove visited from list and clear flags
         if( !capture(row, column-1, opponent, captured, &captured_size)){
             //unmark the ignored pieces
             clearFlags(4, captured+prev_size, captured_size-prev_size);
+            //'free' the pieces that were visited
             captured = realloc(captured, prev_size);
+            //reset captured size
             captured_size = prev_size;
         }
         else prev_size = captured_size;
@@ -111,7 +128,9 @@ int isValidMove(int row, int column){
         if( !capture(row, column+1, opponent, captured, &captured_size) ){ 
             //unmark the ignored pieces
             clearFlags(4, captured+prev_size, captured_size-prev_size);
+            //'free' the pieces that were visited
             captured = realloc(captured, prev_size);
+            //reset captured size
             captured_size = prev_size;
         }
         else prev_size = captured_size;
@@ -121,7 +140,9 @@ int isValidMove(int row, int column){
         if( !capture(row-1, column, opponent, captured, &captured_size)){
             //unmark the ignored pieces
             clearFlags(4, captured+prev_size, captured_size-prev_size);
+            //'free' the pieces that were visited
             captured = realloc(captured, prev_size);
+            //reset captured size
             captured_size = prev_size;
         }
         else prev_size = captured_size;
@@ -131,16 +152,27 @@ int isValidMove(int row, int column){
         if( !capture(row+1, column, opponent, captured, &captured_size)){
             //unmark the ignored pieces
             clearFlags(4, captured+prev_size, captured_size-prev_size);
+            //'free' the pieces that were visited
             captured = realloc(captured, prev_size);
+            //reset captured size
             captured_size = prev_size;
         }
     }
+    printf("done capturing\n");
     if(captured_size > 0){
+        printf("some captured\n");
+        //'capture' the pieces
         flipPieces(opponent, captured, captured_size);
+        //clear the flag
         clearFlags(4, captured, captured_size);
     }
-    free(captured);
+    else{
+        printf("none captured\n");
+        free(captured);
+    }
 
+    //--------- check for suicides if no pieces captured -------------
+    printf("Checking suicide\n");
     if(captured_size == 0){
         //Check suicide
         uint8_t** self = malloc(1);
@@ -148,13 +180,45 @@ int isValidMove(int row, int column){
         int capturable;
         if((capturable = capture(row, column, player, self, &self_size))){
             printf("SUICIDE!!!!\n");
+            clearFlags(4, self, self_size);
         }
-        clearFlags(4, self, self_size);
         free(self);
-        return !capturable;
+        //if suicide return 0
+        if(capturable){
+            board[row][column] = 0;
+            total_pieces--;
+            return 0;
+        } 
     }
+    printf("Checking Ko\n");
+    //-------------- check ko rule -----------------
+    CompressedBoard temp = compressBoardState();
+    printf("TOTAL PIECES: %d\n", total_pieces);
+    int ko = checkKo(temp);
+    printf("KO: %d\n", checkKo(temp));
+
+    //if board state is reoccuring of past...
+    if(ko == 0){
+         printf("Violates Ko\n");
+        if(captured_size > 0){
+            flipPieces(opponent, captured, captured_size);
+            free(captured);
+            board[row][column] = 0;
+            total_pieces--;
+            return 0;
+        }
+    }
+    printf("saving board state\n");
+    //save board state to history
+    history.sizes[total_pieces]++;
+    history.states[total_pieces] = realloc(history.states,history.sizes[total_pieces]);
+    history.states[total_pieces][history.sizes[total_pieces]-1] = temp;
+    
     //undo temp move
+    if(captured_size > 0)
+        free(captured);
     board[row][column] = 0;
+    total_pieces--;
 
     //else return true
     return 1;
@@ -180,7 +244,7 @@ int capture(int row, int column, int player, uint8_t** visited, int* count){
     }
     visited = temp_visited;
 
-    printf("visiting (%p): %d %d (%p)\n", visited, column, row, &(board[row][column]));
+    //printf("visiting (%p): %d %d (%p)\n", visited, column, row, &(board[row][column]));
     visited[*count] = &(board[row][column]);
     *count+=1;
     
@@ -189,10 +253,10 @@ int capture(int row, int column, int player, uint8_t** visited, int* count){
         || row+1 < size && board[row+1][column] == 0
         || column-1 >= 0 && board[row][column-1] == 0
         || column+1 < size && board[row][column+1] == 0){
-            printf("BLANK AREA FOUND\n");
+            //printf("BLANK AREA FOUND\n");
             return 0;
     }
-    printf("Done checking blanks\n");
+    //printf("Done checking blanks\n");
     //will not trigger if has been visited due to 0b100 on visited pieces
     if(row-1 >= 0 && board[row-1][column] == player){
         if(!capture(row-1, column, player, visited, count)){
@@ -214,7 +278,28 @@ int capture(int row, int column, int player, uint8_t** visited, int* count){
             return 0;
         }
     }
-    printf("No blanks found\n");
+    //printf("No blanks found\n");
+    return 1;
+}
+/*
+    Function: Check Ko 
+        Param:
+            CompressedBoard currentState: the current state of all the pieces on the board
+        return:
+            if state passes the Ko rule
+            1: no ko rule broken
+            0: if ko rule is broken
+        Check if board state has ever occurred before
+*/
+int checkKo(CompressedBoard currentState){
+    int num_indices = (int) ceil( ( size * size ) / 32.0 );
+    for(int states = 0; states < history.sizes[total_pieces]; states++){
+        int matching = 0;
+        for(int elements = 0; elements < num_indices; elements++){
+            if(currentState[elements] == history.states[total_pieces][states][elements]) matching++;
+        }
+        if(matching == num_indices) return 0;
+    }
     return 1;
 }
 /*  Function: Flip Pieces
@@ -227,6 +312,8 @@ int capture(int row, int column, int player, uint8_t** visited, int* count){
 void flipPieces(uint8_t player, uint8_t** spaces, int size){
     for(int i = 0; i < size; i++){
         *(spaces[i]) ^= player;
+        if( (*(spaces[i])&3) == 0) total_pieces--;
+        else total_pieces++;
     }
 }
 /*  Function: Clear Flag
@@ -236,10 +323,10 @@ void flipPieces(uint8_t player, uint8_t** spaces, int size){
             int size:   size of array
 */
 void clearFlags(uint8_t flag, uint8_t** spaces, int size){
-    printf("Clearing %d flag(s)\n", size);
-    printf("spaces = %p\n", spaces);
+    //printf("Clearing %d flag(s)\n", size);
+    //printf("spaces = %p\n", spaces);
     for(int i = 0; i < size; i++){
-        printf("clearing %p (%X & %X)\n", spaces[i], *(spaces[i])&0xFF, flag^0xFF);
+        //printf("clearing %p (%X & %X)\n", spaces[i], *(spaces[i])&0xFF, flag^0xFF);
         *(spaces[i]) &= flag^0xFF;
     }
 }
@@ -281,7 +368,7 @@ void destroyBoard(){
 */
 void printBoard(){
     for(int row = 0; row < size; row++){
-        printf("%s", TEXT_FONT);
+        printf("%s%d", TEXT_FONT, size-row);
         for(int column = 0; column < size; column++){
             //Print pieces
             if( board[size-row-1][column] == 1)           printf("%s", BLACK_CIRCLE); //black is player 1
@@ -302,6 +389,11 @@ void printBoard(){
         printf("%s", CLEAR_FONT);
         printf("\n");
     }
+    printf("%s ", TEXT_FONT);
+    for(int column=0; column < size; column++){
+        printf("%d", column+1);
+    }
+    printf("%s\n", CLEAR_FONT);
 }
 /*  Function: Compress Board State
         Params:
@@ -316,7 +408,7 @@ void printBoard(){
 CompressedBoard compressBoardState(){
     //debug statement printf("Compression: %d\n", ((int)ceil((size*size)/32.0)));
     //initialize the size of the board to hold all the positions
-    CompressedBoard cb = (uint64_t*) malloc(sizeof(uint64_t) * (int) ceil( (size*size)/32.0 ));
+    CompressedBoard cb = (CompressedBoard) malloc(sizeof(uint64_t) * (int) ceil( (size*size)/32.0 ));
     //set the amount of bytes read in to 0
     int bytes = 0;
     //iterate through every position
